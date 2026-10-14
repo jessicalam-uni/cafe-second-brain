@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cafe Second Brain</title>
+<style>
+:root{
+  --bg:#faf7f2; --card:#fff; --ink:#2b2420; --muted:#8a7d70; --line:#e8e0d6;
+  --accent:#a8562f; --accent2:#6b8f71; --warn:#c0453a;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--bg:#1c1815;--card:#26211d;--ink:#f0e9e1;--muted:#a99d8f;--line:#3a332c;}
+}
+:root[data-theme="dark"]{--bg:#1c1815;--card:#26211d;--ink:#f0e9e1;--muted:#a99d8f;--line:#3a332c;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+header{padding:18px 16px 6px;position:sticky;top:0;background:var(--bg);z-index:5;padding-top:calc(18px + env(safe-area-inset-top,0px))}
+h1{font-size:1.3rem;margin:0 0 2px}
+.sub{color:var(--muted);font-size:.85rem;margin-bottom:10px}
+nav{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;border-bottom:1px solid var(--line)}
+nav button{flex:0 0 auto;padding:8px 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:.85rem;cursor:pointer}
+nav button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+main{padding:14px 16px 40px;max-width:760px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{font-size:1rem;margin:0 0 8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+input,select{padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:.85rem}
+label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:3px}
+.field{flex:1 1 120px}
+button.btn{padding:9px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:.85rem;cursor:pointer}
+button.btn.secondary{background:var(--accent2)}
+button.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);padding:5px 10px;font-size:.75rem}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase}
+.tbl-wrap{overflow-x:auto}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
+.pill.low{background:#f6dfdb;color:var(--warn)}
+.pill.ok{background:#dcebe0;color:var(--accent2)}
+.pill.mid{background:#f5e9d0;color:#a8752f}
+.stat{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px dashed var(--line)}
+.stat:last-child{border-bottom:none}
+.big{font-size:1.4rem;font-weight:700}
+.muted{color:var(--muted);font-size:.78rem}
+.empty{color:var(--muted);font-size:.85rem;padding:10px 0;text-align:center}
+.del{background:none;border:none;color:var(--warn);cursor:pointer;font-size:.9rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:480px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>☕ Cafe Second Brain</h1>
+  <div class="sub">Supplier & inventory → menu profitability & waste</div>
+  <nav id="tabs"></nav>
+</header>
+<main id="app"></main>
+
+<script>
+const KEY='cafe_brain_v1';
+let db = load();
+function load(){
+  try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d) return d; }catch(e){}
+  return {
+    ingredients:[
+      {id:cid(),name:'Milk (L)',stock:12,unit:'L',reorder:8,cost:1.8,supplier:'Local Dairy Co',par:20,email:'orders@localdairy.example'},
+      {id:cid(),name:'Coffee Beans (kg)',stock:3,unit:'kg',reorder:4,cost:22,supplier:'Roast House',par:8,email:'orders@roasthouse.example'},
+      {id:cid(),name:'Bread (loaf)',stock:5,unit:'loaf',reorder:6,cost:3.5,supplier:'Corner Bakery',par:12,email:'orders@cornerbakery.example'},
+      {id:cid(),name:'Avocado (ea)',stock:14,unit:'ea',reorder:20,cost:0.9,supplier:'Green Grocer',par:40,email:'orders@greengrocer.example'}
+    ],
+    menu:[
+      {id:cid(),name:'Flat White',price:4.8,recipe:[{ing:'Milk (L)',qty:0.2},{ing:'Coffee Beans (kg)',qty:0.02}]},
+      {id:cid(),name:'Avo Toast',price:12.5,recipe:[{ing:'Bread (loaf)',qty:0.25},{ing:'Avocado (ea)',qty:1}]}
+    ],
+    sales:[], waste:[]
+  };
+}
+function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+function cid(){ return Math.random().toString(36).slice(2,9); }
+function ingByName(n){ return db.ingredients.find(i=>i.name===n); }
+
+const TABS=[['dash','Dashboard'],['orders','Orders'],['inv','Inventory'],['menu','Menu'],['sell','Log Sale'],['waste','Log Waste']];
+let active='dash';
+
+function renderTabs(){
+  const nav=document.getElementById('tabs'); nav.innerHTML='';
+  TABS.forEach(([id,label])=>{
+    const b=document.createElement('button');
+    b.textContent=label; b.className=id===active?'active':'';
+    b.onclick=()=>{active=id;render();};
+    nav.appendChild(b);
+  });
+}
+
+function stockPill(i){
+  if(i.stock<=i.reorder*0.5) return `<span class="pill low">Reorder now</span>`;
+  if(i.stock<=i.reorder) return `<span class="pill mid">Low</span>`;
+  return `<span class="pill ok">OK</span>`;
+}
+
+function costOfItem(item){
+  return item.recipe.reduce((sum,r)=>{ const ing=ingByName(r.ing); return sum + (ing?ing.cost*r.qty:0); },0);
+}
+
+function render(){
+  renderTabs();
+  const app=document.getElementById('app');
+  if(active==='dash') app.innerHTML=renderDash();
+  else if(active==='inv') app.innerHTML=renderInv();
+  else if(active==='menu') app.innerHTML=renderMenu();
+  else if(active==='sell') app.innerHTML=renderSell();
+  else if(active==='waste') app.innerHTML=renderWaste();
+  else if(active==='orders') app.innerHTML=renderOrders();
+  bindEvents();bindOrders();
+}
+
+function renderDash(){
+  const lowStock = db.ingredients.filter(i=>i.stock<=i.reorder);
+  const wasteCost = db.waste.reduce((s,w)=>{ const ing=ingByName(w.ing); return s+(ing?ing.cost*w.qty:0);},0);
+  const salesRevenue = db.sales.reduce((s,sa)=>{ const m=db.menu.find(m=>m.id===sa.menuId); return s+(m?m.price*sa.qty:0);},0);
+  const salesCost = db.sales.reduce((s,sa)=>{ const m=db.menu.find(m=>m.id===sa.menuId); return s+(m?costOfItem(m)*sa.qty:0);},0);
+  const margin = salesRevenue-salesCost;
+
+  const itemStats = db.menu.map(m=>{
+    const sold = db.sales.filter(s=>s.menuId===m.id).reduce((s,x)=>s+x.qty,0);
+    const cost = costOfItem(m);
+    const marginPct = m.price>0 ? ((m.price-cost)/m.price*100) : 0;
+    return {name:m.name, sold, cost, marginPct, price:m.price};
+  }).sort((a,b)=>b.sold-a.sold);
+
+  return `
+  <div class="grid2">
+    <div class="card">
+      <h2>Waste cost (logged)</h2>
+      <div class="big" style="color:var(--warn)">$${wasteCost.toFixed(2)}</div>
+      <div class="muted">${db.waste.length} waste entries</div>
+    </div>
+    <div class="card">
+      <h2>Sales margin (logged)</h2>
+      <div class="big" style="color:var(--accent2)">$${margin.toFixed(2)}</div>
+      <div class="muted">Revenue $${salesRevenue.toFixed(2)} · Cost $${salesCost.toFixed(2)}</div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Reorder alerts</h2>
+    ${lowStock.length? lowStock.map(i=>`<div class="stat"><span>${i.name} <span class="muted">(${i.supplier})</span></span>${stockPill(i)}</div>`).join('') : '<div class="empty">All stock above reorder threshold.</div>'}
+  </div>
+  <div class="card">
+    <h2>Menu item performance</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Item</th><th>Sold</th><th>Cost</th><th>Margin %</th></tr>
+      ${itemStats.map(s=>`<tr><td>${s.name}</td><td>${s.sold}</td><td>$${s.cost.toFixed(2)}</td><td>${s.marginPct.toFixed(0)}%</td></tr>`).join('') || `<tr><td colspan="4" class="empty">No sales logged yet</td></tr>`}
+    </table></div>
+    <p class="muted" style="margin-top:8px">Low margin % + high waste on shared ingredients = candidate for reformulation, portion change, or removal.</p>
+  </div>`;
+}
+
+function renderInv(){
+  return `
+  <div class="card">
+    <h2>Add ingredient</h2>
+    <div class="row">
+      <div class="field"><label>Name</label><input id="ni-name" placeholder="e.g. Oat Milk (L)"></div>
+      <div class="field"><label>Unit</label><input id="ni-unit" placeholder="L / kg / ea"></div>
+      <div class="field"><label>Stock qty</label><input id="ni-stock" type="number" step="0.1"></div>
+      <div class="field"><label>Reorder at</label><input id="ni-reorder" type="number" step="0.1"></div>
+      <div class="field"><label>Cost/unit ($)</label><input id="ni-cost" type="number" step="0.01"></div>
+      <div class="field"><label>Supplier</label><input id="ni-supplier" placeholder="Supplier name"></div>
+      <div class="field"><label>Supplier email</label><input id="ni-email" placeholder="orders@supplier.com"></div>
+      <div class="field"><label>Order up to (par)</label><input id="ni-par" type="number" step="0.1"></div>
+    </div>
+    <button class="btn" id="add-ing">Add ingredient</button>
+  </div>
+  <div class="card">
+    <h2>Current stock</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Name</th><th>Stock</th><th>Reorder@</th><th>Cost</th><th>Supplier</th><th>Status</th><th></th></tr>
+      ${db.ingredients.map(i=>`<tr>
+        <td>${i.name}</td><td>${i.stock} ${i.unit}</td><td>${i.reorder}</td><td>$${i.cost.toFixed(2)}</td><td>${i.supplier||'-'}</td>
+        <td>${stockPill(i)}</td><td><button class="del" data-del-ing="${i.id}">✕</button></td></tr>`).join('') || `<tr><td colspan="7" class="empty">No ingredients yet</td></tr>`}
+    </table></div>
+  </div>`;
+}
+
+function renderMenu(){
+  const ingOpts = db.ingredients.map(i=>`<option value="${i.name}">${i.name}</option>`).join('');
+  return `
+  <div class="card">
+    <h2>Add menu item</h2>
+    <div class="row">
+      <div class="field"><label>Name</label><input id="nm-name" placeholder="e.g. Flat White"></div>
+      <div class="field"><label>Price ($)</label><input id="nm-price" type="number" step="0.1"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Ingredient</label><select id="nm-ing">${ingOpts}</select></div>
+      <div class="field"><label>Qty used per item</label><input id="nm-qty" type="number" step="0.01"></div>
+      <button class="btn secondary" id="add-recipe-line" type="button">+ Add to recipe</button>
+    </div>
+    <div id="recipe-draft" class="muted" style="margin-bottom:8px"></div>
+    <button class="btn" id="add-menu">Save menu item</button>
+  </div>
+  <div class="card">
+    <h2>Menu items</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Item</th><th>Price</th><th>Cost</th><th>Margin %</th><th>Recipe</th><th></th></tr>
+      ${db.menu.map(m=>{ const c=costOfItem(m); const pct=m.price>0?((m.price-c)/m.price*100):0;
+        return `<tr><td>${m.name}</td><td>$${m.price.toFixed(2)}</td><td>$${c.toFixed(2)}</td><td>${pct.toFixed(0)}%</td>
+        <td class="muted">${m.recipe.map(r=>`${r.ing} ×${r.qty}`).join(', ')}</td>
+        <td><button class="del" data-del-menu="${m.id}">✕</button></td></tr>`;}).join('') || `<tr><td colspan="6" class="empty">No menu items yet</td></tr>`}
+    </table></div>
+  </div>`;
+}
+
+let draftRecipe=[];
+function renderSell(){
+  const opts=db.menu.map(m=>`<option value="${m.id}">${m.name} ($${m.price.toFixed(2)})</option>`).join('');
+  return `
+  <div class="card">
+    <h2>Log a sale</h2>
+    <p class="muted">Deducts recipe ingredients from stock automatically.</p>
+    <div class="row">
+      <div class="field"><label>Menu item</label><select id="sl-item">${opts}</select></div>
+      <div class="field"><label>Qty sold</label><input id="sl-qty" type="number" value="1" min="1"></div>
+    </div>
+    <button class="btn" id="log-sale">Log sale</button>
+  </div>
+  <div class="card">
+    <h2>Recent sales</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Item</th><th>Qty</th><th>Revenue</th></tr>
+      ${[...db.sales].reverse().slice(0,15).map(s=>{ const m=db.menu.find(x=>x.id===s.menuId);
+        return `<tr><td>${m?m.name:'(deleted)'}</td><td>${s.qty}</td><td>$${m?(m.price*s.qty).toFixed(2):'-'}</td></tr>`;}).join('') || `<tr><td colspan="3" class="empty">No sales logged</td></tr>`}
+    </table></div>
+  </div>`;
+}
+
+function renderWaste(){
+  const opts=db.ingredients.map(i=>`<option value="${i.name}">${i.name}</option>`).join('');
+  return `
+  <div class="card">
+    <h2>Log waste</h2>
+    <div class="row">
+      <div class="field"><label>Ingredient</label><select id="w-ing">${opts}</select></div>
+      <div class="field"><label>Qty wasted</label><input id="w-qty" type="number" step="0.1"></div>
+      <div class="field"><label>Reason</label><select id="w-reason">
+        <option>Spoiled / expired</option><option>Over-prepped</option><option>Customer return</option><option>Spillage/error</option>
+      </select></div>
+    </div>
+    <button class="btn" id="log-waste">Log waste</button>
+  </div>
+  <div class="card">
+    <h2>Waste log</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Ingredient</th><th>Qty</th><th>Cost</th><th>Reason</th></tr>
+      ${[...db.waste].reverse().slice(0,15).map(w=>{ const ing=ingByName(w.ing);
+        return `<tr><td>${w.ing}</td><td>${w.qty}</td><td>$${ing?(ing.cost*w.qty).toFixed(2):'-'}</td><td>${w.reason}</td></tr>`;}).join('') || `<tr><td colspan="4" class="empty">No waste logged</td></tr>`}
+    </table></div>
+  </div>`;
+}
+
+function bindEvents(){
+  const $=id=>document.getElementById(id);
+  if($('add-ing')) $('add-ing').onclick=()=>{
+    const name=$('ni-name').value.trim(); if(!name) return alert('Name required');
+    db.ingredients.push({id:cid(),name,unit:$('ni-unit').value||'ea',stock:parseFloat($('ni-stock').value)||0,reorder:parseFloat($('ni-reorder').value)||0,cost:parseFloat($('ni-cost').value)||0,supplier:$('ni-supplier').value,par:parseFloat($('ni-par').value)||undefined,email:$('ni-email').value});
+    save(); render();
+  };
+  document.querySelectorAll('[data-del-ing]').forEach(b=>b.onclick=()=>{ db.ingredients=db.ingredients.filter(i=>i.id!==b.dataset.delIng); save(); render(); });
+  document.querySelectorAll('[data-del-menu]').forEach(b=>b.onclick=()=>{ db.menu=db.menu.filter(m=>m.id!==b.dataset.delMenu); save(); render(); });
+
+  if($('add-recipe-line')) $('add-recipe-line').onclick=()=>{
+    const ing=$('nm-ing').value, qty=parseFloat($('nm-qty').value);
+    if(!ing||!qty) return;
+    draftRecipe.push({ing,qty});
+    $('recipe-draft').textContent='Recipe so far: '+draftRecipe.map(r=>`${r.ing}×${r.qty}`).join(', ');
+  };
+  if($('add-menu')) $('add-menu').onclick=()=>{
+    const name=$('nm-name').value.trim(), price=parseFloat($('nm-price').value);
+    if(!name||!price||!draftRecipe.length) return alert('Name, price and at least one recipe line required');
+    db.menu.push({id:cid(),name,price,recipe:draftRecipe});
+    draftRecipe=[]; save(); render();
+  };
+  if($('log-sale')) $('log-sale').onclick=()=>{
+    const menuId=$('sl-item').value, qty=parseInt($('sl-qty').value)||1;
+    const item=db.menu.find(m=>m.id===menuId); if(!item) return;
+    item.recipe.forEach(r=>{ const ing=ingByName(r.ing); if(ing) ing.stock=Math.max(0,ing.stock-r.qty*qty); });
+    db.sales.push({menuId,qty,ts:Date.now()});
+    save(); render();
+  };
+  if($('log-waste')) $('log-waste').onclick=()=>{
+    const ing=$('w-ing').value, qty=parseFloat($('w-qty').value), reason=$('w-reason').value;
+    if(!ing||!qty) return;
+    const i=ingByName(ing); if(i) i.stock=Math.max(0,i.stock-qty);
+    db.waste.push({ing,qty,reason,ts:Date.now()});
+    save(); render();
+  };
+}
+
+/* ---------- ONE-CLICK ORDERING ---------- */
+db.orders = db.orders || [];
+db.settings = db.settings || {webhook:''};
+
+function openOrderNames(){
+  return new Set(db.orders.filter(o=>o.status!=='received').flatMap(o=>o.lines.map(l=>l.name)));
+}
+// Auto-draft: anything at/below reorder point gets topped up to its par level, grouped by supplier
+function suggestions(){
+  const busy=openOrderNames(), g={};
+  db.ingredients.forEach(i=>{
+    if(i.stock<=i.reorder && !busy.has(i.name)){
+      const par=i.par ?? i.reorder*2;
+      const qty=Math.ceil((par-i.stock)*10)/10;
+      if(qty>0){
+        const s=i.supplier||'Unassigned';
+        g[s]=g[s]||{supplier:s,email:i.email||'',lines:[]};
+        g[s].lines.push({name:i.name,unit:i.unit,qty,cost:i.cost});
+      }
+    }
+  });
+  return Object.values(g);
+}
+function poTotal(lines){ return lines.reduce((s,x)=>s+x.qty*x.cost,0); }
+function poText(o){
+  return `Hi ${o.supplier},\n\nPlease supply the following:\n`+
+    o.lines.map(l=>`- ${l.name}: ${l.qty} ${l.unit}`).join('\n')+`\n\nPurchase order ${o.id}. Thanks!`;
+}
+function mailto(o){
+  return `mailto:${o.email}?subject=${encodeURIComponent('Order '+o.id)}&body=${encodeURIComponent(poText(o))}`;
+}
+
+function renderOrders(){
+  const sug=suggestions();
+  const total=sug.reduce((s,g)=>s+poTotal(g.lines),0);
+  return `
+  <div class="card">
+    <h2>Suggested orders</h2>
+    ${sug.length? sug.map(g=>`
+      <div style="margin-bottom:10px">
+        <strong>${g.supplier}</strong> <span class="muted">${g.email||'no email set'} · $${poTotal(g.lines).toFixed(2)}</span>
+        <div class="muted">${g.lines.map(l=>`${l.name}: ${l.qty} ${l.unit}`).join(' · ')}</div>
+      </div>`).join('') +
+      `<button class="btn" id="approve-all">✔ Approve & send all ($${total.toFixed(2)})</button>`
+      : '<div class="empty">Nothing to order. Stock is above reorder points (or already on order).</div>'}
+  </div>
+  <div class="card">
+    <h2>Order history</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>PO</th><th>Supplier</th><th>Total</th><th>Status</th><th></th></tr>
+      ${[...db.orders].reverse().map(o=>`<tr>
+        <td>${o.id}</td><td>${o.supplier}</td><td>$${o.total.toFixed(2)}</td><td>${o.status}</td>
+        <td>${o.status!=='received'?`${o.status==='approved'?`<a href="${mailto(o)}">✉ Email</a> `:''}<button class="btn ghost" data-recv="${o.id}">Received</button>`:''}</td>
+      </tr>`).join('') || `<tr><td colspan="5" class="empty">No orders yet</td></tr>`}
+    </table></div>
+  </div>
+  <div class="card">
+    <h2>Auto-send settings</h2>
+    <label>Webhook URL (e.g. Power Automate "When an HTTP request is received" flow that emails the supplier)</label>
+    <input id="wh" style="width:100%" placeholder="https://..." value="${db.settings.webhook||''}">
+    <p class="muted">With a webhook set, approving sends orders automatically. Without one, each order gets an Email link.</p>
+  </div>`;
+}
+
+function bindOrders(){
+  const $=id=>document.getElementById(id);
+  if($('approve-all')) $('approve-all').onclick=async()=>{
+    for(const g of suggestions()){
+      const o={id:'PO'+Date.now().toString(36)+cid().slice(0,2),supplier:g.supplier,email:g.email,
+               lines:g.lines,total:poTotal(g.lines),ts:Date.now(),status:'approved'};
+      db.orders.push(o);
+      if(db.settings.webhook){
+        try{
+          await fetch(db.settings.webhook,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},
+            body:JSON.stringify({...o,message:poText(o)})});
+          o.status='sent';
+        }catch(e){}
+      }
+    }
+    save(); render();
+  };
+  document.querySelectorAll('[data-recv]').forEach(b=>b.onclick=()=>{
+    const o=db.orders.find(x=>x.id===b.dataset.recv);
+    o.lines.forEach(l=>{ const i=ingByName(l.name); if(i) i.stock+=l.qty; });
+    o.status='received'; save(); render();
+  });
+  if($('wh')) $('wh').onchange=()=>{ db.settings.webhook=$('wh').value.trim(); save(); };
+}
+
+render();
+</script>
+</body>
+</html>
