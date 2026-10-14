@@ -306,22 +306,6 @@ db.settings = db.settings || {webhook:''};
 function openOrderNames(){
   return new Set(db.orders.filter(o=>o.status!=='received').flatMap(o=>o.lines.map(l=>l.name)));
 }
-// Auto-draft: anything at/below reorder point gets topped up to its par level, grouped by supplier
-function suggestions(){
-  const busy=openOrderNames(), g={};
-  db.ingredients.forEach(i=>{
-    if(i.stock<=i.reorder && !busy.has(i.name)){
-      const par=i.par ?? i.reorder*2;
-      const qty=Math.ceil((par-i.stock)*10)/10;
-      if(qty>0){
-        const s=i.supplier||'Unassigned';
-        g[s]=g[s]||{supplier:s,email:i.email||'',lines:[]};
-        g[s].lines.push({name:i.name,unit:i.unit,qty,cost:i.cost});
-      }
-    }
-  });
-  return Object.values(g);
-}
 function poTotal(lines){ return lines.reduce((s,x)=>s+x.qty*x.cost,0); }
 function poText(o){
   return `Hi ${o.supplier},\n\nPlease supply the following:\n`+
@@ -340,11 +324,12 @@ function renderOrders(){
     ${sug.length? sug.map(g=>`
       <div style="margin-bottom:10px">
         <strong>${g.supplier}</strong> <span class="muted">${g.email||'no email set'} · $${poTotal(g.lines).toFixed(2)}</span>
-        <div class="muted">${g.lines.map(l=>`${l.name}: ${l.qty} ${l.unit}`).join(' · ')}</div>
+        <div class="muted">${g.lines.map(l=>`${l.name}: ${l.qty} ${l.unit} (${l.why})`).join(' · ')}</div>
       </div>`).join('') +
       `<button class="btn" id="approve-all">✔ Approve & send all ($${total.toFixed(2)})</button>`
       : '<div class="empty">Nothing to order. Stock is above reorder points (or already on order).</div>'}
   </div>
+  ${renderForecast()}
   <div class="card">
     <h2>Order history</h2>
     <div class="tbl-wrap"><table>
@@ -359,6 +344,11 @@ function renderOrders(){
     <h2>Auto-send settings</h2>
     <label>Webhook URL (e.g. Power Automate "When an HTTP request is received" flow that emails the supplier)</label>
     <input id="wh" style="width:100%" placeholder="https://..." value="${db.settings.webhook||''}">
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Safety buffer %</label><input id="buf" type="number" value="${db.settings.buffer}"></div>
+      <div class="field"><label>Days of cover after delivery</label><input id="cov" type="number" value="${db.settings.cover}"></div>
+    </div>
+    <button class="btn ghost" id="gen-demo">Generate 14 days of demo sales</button>
     <p class="muted">With a webhook set, approving sends orders automatically. Without one, each order gets an Email link.</p>
   </div>`;
 }
@@ -385,7 +375,70 @@ function bindOrders(){
     o.lines.forEach(l=>{ const i=ingByName(l.name); if(i) i.stock+=l.qty; });
     o.status='received'; save(); render();
   });
+  if($('gen-demo')) $('gen-demo').onclick=genDemo;
+  if($('buf')) $('buf').onchange=()=>{ db.settings.buffer=parseFloat($('buf').value)||0; save(); render(); };
+  if($('cov')) $('cov').onchange=()=>{ db.settings.cover=parseFloat($('cov').value)||1; save(); render(); };
   if($('wh')) $('wh').onchange=()=>{ db.settings.webhook=$('wh').value.trim(); save(); };
+}
+
+// ---------- FORECASTED DEMAND ----------
+const DAY=864e5;
+db.settings.buffer = db.settings.buffer ?? 10;   // safety stock %
+db.settings.cover  = db.settings.cover  ?? 3;    // days of stock to hold after delivery
+
+function lookbackDays(){
+  const ts=[...db.sales,...db.waste].map(x=>x.ts).filter(Boolean);
+  if(!ts.length) return 0;
+  return Math.min(14, Math.max(1,(Date.now()-Math.min(...ts))/DAY));
+}
+// Average daily usage of an ingredient = sales (via recipes) + logged waste, over the last <=14 days
+function demandPerDay(name){
+  const d=lookbackDays(); if(!d) return 0;
+  const since=Date.now()-d*DAY; let used=0;
+  db.sales.forEach(s=>{
+    if(s.ts<since) return;
+    const m=db.menu.find(x=>x.id===s.menuId); if(!m) return;
+    m.recipe.forEach(r=>{ if(r.ing===name) used+=r.qty*s.qty; });
+  });
+  db.waste.forEach(w=>{ if(w.ts>=since && w.ing===name) used+=w.qty; });
+  return used/d;
+}
+// Order when stock is low OR forecast says we'll run out before a delivery could arrive.
+// Quantity = forecast demand over (lead time + cover days) + safety buffer - current stock.
+function suggestions(){
+  const busy=openOrderNames(), g={}, buf=1+db.settings.buffer/100, cover=db.settings.cover;
+  db.ingredients.forEach(i=>{
+    if(busy.has(i.name)) return;
+    const dem=demandPerDay(i.name), lead=i.lead??2, daysLeft=dem>0?i.stock/dem:Infinity;
+    const low=i.stock<=i.reorder, stockout=daysLeft<=lead+1;
+    if(!low && !stockout) return;
+    const target=dem>0 ? dem*(lead+cover)*buf : (i.par??i.reorder*2);
+    const qty=Math.ceil((target-i.stock)*10)/10;
+    if(qty<=0) return;
+    const dl=daysLeft.toFixed(1);
+    const why=low&&stockout?`low stock, out in ~${dl}d`:stockout?`forecast: out in ~${dl}d`:'below reorder point';
+    const s=i.supplier||'Unassigned';
+    g[s]=g[s]||{supplier:s,email:i.email||'',lines:[]};
+    g[s].lines.push({name:i.name,unit:i.unit,qty,cost:i.cost,why});
+  });
+  return Object.values(g);
+}
+function renderForecast(){
+  return `<div class="card"><h2>Demand forecast</h2><div class="tbl-wrap"><table>
+    <tr><th>Ingredient</th><th>Stock</th><th>Use/day</th><th>Days left</th></tr>
+    ${db.ingredients.map(i=>{const d=demandPerDay(i.name),dl=d>0?(i.stock/d).toFixed(1):'–';
+      return `<tr><td>${i.name}</td><td>${i.stock} ${i.unit}</td><td>${d>0?d.toFixed(2):'–'}</td><td>${dl}</td></tr>`;}).join('')}
+  </table></div><p class="muted">Based on the last ${Math.round(lookbackDays())||0} days of sales and waste. Log sales to improve it.</p></div>`;
+}
+function genDemo(){
+  db.menu.forEach(m=>{
+    const base=m.price<8?55:18;
+    for(let d=14;d>=1;d--){
+      const dow=new Date(Date.now()-d*DAY).getDay(), bump=(dow===0||dow===6)?1.3:1;
+      db.sales.push({menuId:m.id,qty:Math.round(base*bump*(0.8+Math.random()*0.4)),ts:Date.now()-d*DAY});
+    }
+  });
+  save(); render();
 }
 
 render();
