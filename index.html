@@ -63,6 +63,18 @@ th{color:var(--muted);font-weight:500;font-size:.78rem}
 .grid2 .card{margin-bottom:0}
 .grid2{margin-bottom:18px}
 @media(max-width:560px){.grid2{grid-template-columns:1fr}h1{font-size:1.8rem}}
+.dash-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}
+.dash-grid .card{margin-bottom:0}
+.c5{grid-column:span 5}.c7{grid-column:span 7}
+.label{font-size:.85rem;color:var(--muted);font-weight:500;margin-bottom:2px}
+.big.sm{font-size:2rem}
+.fhead{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:22px 28px;margin-top:6px}
+.bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:8px}
+.rec{padding:12px 0;border-bottom:1px solid var(--line);font-size:.95rem;line-height:1.4}
+.rec:last-of-type{border-bottom:none}
+@media(max-width:680px){.c5,.c7{grid-column:span 12}.fgrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -129,47 +141,6 @@ function render(){
   else if(active==='waste') app.innerHTML=renderWaste();
   else if(active==='orders') app.innerHTML=renderOrders();
   bindEvents();bindOrders();
-}
-
-function renderDash(){
-  const lowStock = db.ingredients.filter(i=>i.stock<=i.reorder);
-  const wasteCost = db.waste.reduce((s,w)=>{ const ing=ingByName(w.ing); return s+(ing?ing.cost*w.qty:0);},0);
-  const salesRevenue = db.sales.reduce((s,sa)=>{ const m=db.menu.find(m=>m.id===sa.menuId); return s+(m?m.price*sa.qty:0);},0);
-  const salesCost = db.sales.reduce((s,sa)=>{ const m=db.menu.find(m=>m.id===sa.menuId); return s+(m?costOfItem(m)*sa.qty:0);},0);
-  const margin = salesRevenue-salesCost;
-
-  const itemStats = db.menu.map(m=>{
-    const sold = db.sales.filter(s=>s.menuId===m.id).reduce((s,x)=>s+x.qty,0);
-    const cost = costOfItem(m);
-    const marginPct = m.price>0 ? ((m.price-cost)/m.price*100) : 0;
-    return {name:m.name, sold, cost, marginPct, price:m.price};
-  }).sort((a,b)=>b.sold-a.sold);
-
-  return `
-  <div class="grid2">
-    <div class="card">
-      <h2>Waste cost (logged)</h2>
-      <div class="big" style="color:var(--warn)">$${wasteCost.toFixed(2)}</div>
-      <div class="muted">${db.waste.length} waste entries</div>
-    </div>
-    <div class="card">
-      <h2>Sales margin (logged)</h2>
-      <div class="big" style="color:var(--accent2)">$${margin.toFixed(2)}</div>
-      <div class="muted">Revenue $${salesRevenue.toFixed(2)} · Cost $${salesCost.toFixed(2)}</div>
-    </div>
-  </div>
-  <div class="card">
-    <h2>Reorder alerts</h2>
-    ${lowStock.length? lowStock.map(i=>`<div class="stat"><span>${i.name} <span class="muted">(${i.supplier})</span></span>${stockPill(i)}</div>`).join('') : '<div class="empty">All stock above reorder threshold.</div>'}
-  </div>
-  <div class="card">
-    <h2>Menu item performance</h2>
-    <div class="tbl-wrap"><table>
-      <tr><th>Item</th><th>Sold</th><th>Cost</th><th>Margin %</th></tr>
-      ${itemStats.map(s=>`<tr><td>${s.name}</td><td>${s.sold}</td><td>$${s.cost.toFixed(2)}</td><td>${s.marginPct.toFixed(0)}%</td></tr>`).join('') || `<tr><td colspan="4" class="empty">No sales logged yet</td></tr>`}
-    </table></div>
-    <p class="muted" style="margin-top:8px">Low margin % + high waste on shared ingredients = candidate for reformulation, portion change, or removal.</p>
-  </div>`;
 }
 
 function renderInv(){
@@ -390,6 +361,11 @@ function bindOrders(){
     o.status='received'; save(); render();
   });
   if($('gen-demo')) $('gen-demo').onclick=genDemo;
+  if($('add-event')) $('add-event').onclick=()=>{
+    const name=$('ev-name').value.trim(); if(!name) return;
+    db.events.push({id:cid(),date:todayISO(),name,uplift:parseFloat($('ev-up').value)||20}); save(); render();
+  };
+  document.querySelectorAll('[data-del-ev]').forEach(b=>b.onclick=()=>{ db.events=db.events.filter(e=>e.id!==b.dataset.delEv); save(); render(); });
   if($('buf')) $('buf').onchange=()=>{ db.settings.buffer=parseFloat($('buf').value)||0; save(); render(); };
   if($('cov')) $('cov').onchange=()=>{ db.settings.cover=parseFloat($('cov').value)||1; save(); render(); };
   if($('wh')) $('wh').onchange=()=>{ db.settings.webhook=$('wh').value.trim(); save(); };
@@ -447,14 +423,133 @@ function renderForecast(){
 function genDemo(){
   db.menu.forEach(m=>{
     const base=m.price<8?55:18;
-    for(let d=14;d>=1;d--){
+    for(let d=14;d>=0;d--){
       const dow=new Date(Date.now()-d*DAY).getDay(), bump=(dow===0||dow===6)?1.3:1;
-      db.sales.push({menuId:m.id,qty:Math.round(base*bump*(0.8+Math.random()*0.4)),ts:Date.now()-d*DAY});
+      db.sales.push({menuId:m.id,qty:Math.max(1,Math.round(base*bump*(d===0?0.5:1)*(0.8+Math.random()*0.4))),ts:Date.now()-d*DAY});
     }
   });
   save(); render();
 }
 
+// ---------- HOME PAGE (matches wireframe) ----------
+db.events = db.events || [];
+let weather=null;
+const dkey=ts=>new Date(ts).toDateString();
+const todayISO=()=>new Date().toLocaleDateString('en-CA');
+const money=n=>'$'+n.toFixed(2);
+
+function loadWeather(){
+  const lat=db.settings.lat??-33.87, lon=db.settings.lon??151.21;
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1`)
+    .then(r=>r.json()).then(d=>{const x=d.daily;
+      weather={code:x.weathercode[0],max:x.temperature_2m_max[0],min:x.temperature_2m_min[0],rain:x.precipitation_probability_max[0]};
+      if(active==='dash') render();}).catch(()=>{});
+}
+function wxText(c){return c===0?'Clear':c<=3?'Partly cloudy':c<=48?'Fog':c<=67?'Rain':c<=77?'Snow':c<=82?'Showers':'Thunderstorms';}
+function isWet(){return weather&&(weather.rain>=60||(weather.code>=51&&weather.code<=67)||(weather.code>=80&&weather.code<=82));}
+
+function dayTotals(){
+  const m={};
+  db.sales.forEach(s=>{const it=db.menu.find(x=>x.id===s.menuId); if(!it) return;
+    const k=dkey(s.ts); m[k]=m[k]||{rev:0,qty:0,cost:0,dow:new Date(s.ts).getDay()};
+    m[k].rev+=it.price*s.qty; m[k].qty+=s.qty; m[k].cost+=costOfItem(it)*s.qty;});
+  return m;
+}
+function todayEvents(){return db.events.filter(e=>e.date===todayISO());}
+
+// Expected revenue/customers = past daily average x weekday pattern x weather x local events
+function forecastToday(){
+  const t=dayTotals(), tk=new Date().toDateString(), dow=new Date().getDay();
+  const past=Object.entries(t).filter(([k])=>k!==tk).map(([,v])=>v);
+  if(!past.length) return null;
+  const avg=f=>past.reduce((s,v)=>s+v[f],0)/past.length;
+  const same=past.filter(v=>v.dow===dow);
+  let dowF=same.length?(same.reduce((s,v)=>s+v.rev,0)/same.length)/avg('rev'):1;
+  dowF=Math.min(1.4,Math.max(0.7,dowF));
+  const wxF=isWet()?0.9:1;
+  const evF=1+todayEvents().reduce((s,e)=>s+e.uplift,0)/100;
+  const f=dowF*wxF*evF;
+  return {revenue:avg('rev')*f,items:avg('qty')*f,customers:Math.round(avg('qty')*f/1.5),dowF,wxF,evF};
+}
+
+function recommendations(){
+  const out=[], sug=suggestions();
+  if(sug.length){
+    const n=sug.reduce((s,g)=>s+g.lines.length,0), tot=sug.reduce((s,g)=>s+poTotal(g.lines),0);
+    out.push({txt:`Order ${n} item${n>1?'s':''} from ${sug.length} supplier${sug.length>1?'s':''} (${money(tot)}) so you don't run out.`,act:true});
+  }
+  const wk={};
+  db.waste.filter(w=>Date.now()-w.ts<7*DAY).forEach(w=>{const i=ingByName(w.ing); if(i) wk[w.ing]=(wk[w.ing]||0)+i.cost*w.qty;});
+  const top=Object.entries(wk).sort((a,b)=>b[1]-a[1])[0];
+  if(top) out.push({txt:`${top[0]} is your biggest waste this week (${money(top[1])}). Prep or order less of it.`});
+  const f=forecastToday();
+  if(f&&f.wxF<1) out.push({txt:'Rain expected: plan for roughly 10% fewer customers and prep lighter.'});
+  if(f&&f.evF>1) out.push({txt:`A local event is on: expect about +${Math.round((f.evF-1)*100)}% demand. Make sure key items are stocked.`});
+  if(!out.length) out.push({txt:'All good. Stock is healthy and nothing needs your attention today.'});
+  return out;
+}
+
+function renderDash(){
+  const tk=new Date().toDateString();
+  const t=dayTotals()[tk]||{rev:0,qty:0,cost:0};
+  const f=forecastToday();
+  const pct=f&&f.revenue>0?Math.min(100,t.rev/f.revenue*100):0;
+  const wToday=db.waste.filter(w=>dkey(w.ts)===tk).map(w=>{const i=ingByName(w.ing);return {...w,cost:i?i.cost*w.qty:0};});
+  const wCost=wToday.reduce((s,w)=>s+w.cost,0);
+  const wOpts=db.ingredients.map(i=>`<option value="${i.name}">${i.name}</option>`).join('');
+  const evs=todayEvents();
+  const dateStr=new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
+  const adj=f?[f.dowF!==1?`weekday pattern ${f.dowF>1?'+':''}${Math.round((f.dowF-1)*100)}%`:'',f.wxF<1?'rain -10%':'',f.evF>1?`events +${Math.round((f.evF-1)*100)}%`:''].filter(Boolean).join(' · '):'';
+  return `
+  <div class="dash-grid">
+    <div class="card c5">
+      <h2>Today's Performance</h2>
+      <div class="label">Revenue so far</div>
+      <div class="big">${money(t.rev)}</div>
+      <div class="muted" style="margin:6px 0 14px">${t.qty} items sold · gross margin ${money(t.rev-t.cost)}</div>
+      ${f?`<div class="bar"><i style="width:${pct}%"></i></div><div class="muted" style="margin-top:6px">${Math.round(pct)}% of today's expected ${money(f.revenue)}</div>`
+        :`<div class="muted">Log sales for a day or two to compare against a forecast.</div>
+          <button class="btn ghost" id="gen-demo" style="margin-top:10px">Load 14 days of demo sales</button>`}
+    </div>
+
+    <div class="card c7">
+      <h2>End-of-day food waste</h2>
+      <div class="label">Wasted today</div>
+      <div class="big" style="color:${wCost>0?'var(--warn)':'var(--ink)'}">${money(wCost)}</div>
+      <div class="muted" style="margin:6px 0 10px">${wToday.length} item${wToday.length===1?'':'s'} logged</div>
+      ${wToday.length?`<div class="tbl-wrap"><table>${wToday.map(w=>`<tr><td>${w.ing}</td><td>${w.qty}</td><td>${w.reason}</td><td>${money(w.cost)}</td></tr>`).join('')}</table></div>`:''}
+      <div class="row" style="margin-top:12px">
+        <div class="field"><label>Ingredient</label><select id="w-ing">${wOpts}</select></div>
+        <div class="field"><label>Qty</label><input id="w-qty" type="number" step="0.1"></div>
+        <div class="field"><label>Reason</label><select id="w-reason"><option>Spoiled / expired</option><option>Over-prepped</option><option>Customer return</option><option>Spillage/error</option></select></div>
+      </div>
+      <button class="btn" id="log-waste">Log waste</button>
+    </div>
+
+    <div class="card c7">
+      <div class="fhead"><h2>Forecast</h2><span class="muted">Date: ${dateStr}</span></div>
+      <div class="fgrid">
+        <div><div class="label">Expected revenue</div><div class="big sm">${f?money(f.revenue):'–'}</div></div>
+        <div><div class="label">Weather</div><div class="big sm">${weather?Math.round(weather.max)+'°':'–'}</div>
+          <div class="muted">${weather?`${wxText(weather.code)} · ${weather.rain}% rain · low ${Math.round(weather.min)}°`:'Loading…'}</div></div>
+        <div><div class="label">Expected customers</div><div class="big sm">${f?'~'+f.customers:'–'}</div>
+          <div class="muted">${f?'assumes 1.5 items per customer':''}</div></div>
+        <div><div class="label">Local events</div>
+          ${evs.length?evs.map(e=>`<div class="stat" style="padding:6px 0"><span>${e.name} <span class="muted">+${e.uplift}%</span></span><button class="del" data-del-ev="${e.id}">✕</button></div>`).join(''):'<div class="muted">None added for today</div>'}
+          <div class="row" style="margin-top:8px"><input id="ev-name" placeholder="Event name" style="flex:2;min-width:110px"><input id="ev-up" type="number" placeholder="+%" style="width:70px"><button class="btn ghost" id="add-event">Add</button></div>
+        </div>
+      </div>
+      ${adj?`<p class="muted" style="margin:10px 0 0">Adjusted for ${adj}</p>`:''}
+    </div>
+
+    <div class="card c5">
+      <h2>Recommendation</h2>
+      ${recommendations().map(r=>`<div class="rec">${r.txt}</div>${r.act?`<button class="btn" id="approve-all" style="margin:0 0 12px">Approve & send order</button>`:''}`).join('')}
+    </div>
+  </div>`;
+}
+
+loadWeather();
 render();
 </script>
 </body>
