@@ -75,6 +75,12 @@ th{color:var(--muted);font-weight:500;font-size:.78rem}
 .rec{padding:12px 0;border-bottom:1px solid var(--line);font-size:.95rem;line-height:1.4}
 .rec:last-of-type{border-bottom:none}
 @media(max-width:680px){.c5,.c7{grid-column:span 12}.fgrid{grid-template-columns:1fr}}
+.invgrid{display:grid;grid-template-columns:1fr 240px;gap:28px}
+.flags{background:var(--bg);border-radius:16px;padding:16px;align-self:start}
+.flaghead{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.flag{padding:6px 0;font-size:.92rem;display:flex;justify-content:space-between;gap:8px}
+button.btn:disabled{opacity:.35;cursor:not-allowed}
+@media(max-width:680px){.invgrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -92,10 +98,10 @@ function load(){
   try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d) return d; }catch(e){}
   return {
     ingredients:[
-      {id:cid(),name:'Milk (L)',stock:12,unit:'L',reorder:8,cost:1.8,supplier:'Local Dairy Co',par:20,email:'orders@localdairy.example'},
-      {id:cid(),name:'Coffee Beans (kg)',stock:3,unit:'kg',reorder:4,cost:22,supplier:'Roast House',par:8,email:'orders@roasthouse.example'},
-      {id:cid(),name:'Bread (loaf)',stock:5,unit:'loaf',reorder:6,cost:3.5,supplier:'Corner Bakery',par:12,email:'orders@cornerbakery.example'},
-      {id:cid(),name:'Avocado (ea)',stock:14,unit:'ea',reorder:20,cost:0.9,supplier:'Green Grocer',par:40,email:'orders@greengrocer.example'}
+      {id:cid(),name:'Milk (L)',stock:12,unit:'L',reorder:8,cost:1.8,supplier:'Local Dairy Co',par:20,email:'orders@localdairy.example',expiry:ds(2)},
+      {id:cid(),name:'Coffee Beans (kg)',stock:3,unit:'kg',reorder:4,cost:22,supplier:'Roast House',par:8,email:'orders@roasthouse.example',expiry:ds(60)},
+      {id:cid(),name:'Bread (loaf)',stock:5,unit:'loaf',reorder:6,cost:3.5,supplier:'Corner Bakery',par:12,email:'orders@cornerbakery.example',expiry:ds(1)},
+      {id:cid(),name:'Avocado (ea)',stock:14,unit:'ea',reorder:20,cost:0.9,supplier:'Green Grocer',par:40,email:'orders@greengrocer.example',expiry:ds(4)}
     ],
     menu:[
       {id:cid(),name:'Flat White',price:4.8,recipe:[{ing:'Milk (L)',qty:0.2},{ing:'Coffee Beans (kg)',qty:0.02}]},
@@ -104,11 +110,12 @@ function load(){
     sales:[], waste:[]
   };
 }
+function ds(n){return new Date(Date.now()+n*864e5).toLocaleDateString('en-CA');}
 function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
 function cid(){ return Math.random().toString(36).slice(2,9); }
 function ingByName(n){ return db.ingredients.find(i=>i.name===n); }
 
-const TABS=[['dash','Dashboard'],['orders','Orders'],['inv','Inventory'],['menu','Menu'],['sell','Log Sale'],['waste','Log Waste']];
+const TABS=[['dash','Dashboard'],['orders','Demand & Stock'],['inv','Inventory'],['menu','Menu'],['sell','Log Sale'],['waste','Log Waste']];
 let active='dash';
 
 function renderTabs(){
@@ -156,6 +163,7 @@ function renderInv(){
       <div class="field"><label>Supplier</label><input id="ni-supplier" placeholder="Supplier name"></div>
       <div class="field"><label>Supplier email</label><input id="ni-email" placeholder="orders@supplier.com"></div>
       <div class="field"><label>Order up to (par)</label><input id="ni-par" type="number" step="0.1"></div>
+      <div class="field"><label>Expiry date</label><input id="ni-expiry" type="date"></div>
     </div>
     <button class="btn" id="add-ing">Add ingredient</button>
   </div>
@@ -250,7 +258,7 @@ function bindEvents(){
   const $=id=>document.getElementById(id);
   if($('add-ing')) $('add-ing').onclick=()=>{
     const name=$('ni-name').value.trim(); if(!name) return alert('Name required');
-    db.ingredients.push({id:cid(),name,unit:$('ni-unit').value||'ea',stock:parseFloat($('ni-stock').value)||0,reorder:parseFloat($('ni-reorder').value)||0,cost:parseFloat($('ni-cost').value)||0,supplier:$('ni-supplier').value,par:parseFloat($('ni-par').value)||undefined,email:$('ni-email').value});
+    db.ingredients.push({id:cid(),name,unit:$('ni-unit').value||'ea',stock:parseFloat($('ni-stock').value)||0,reorder:parseFloat($('ni-reorder').value)||0,cost:parseFloat($('ni-cost').value)||0,supplier:$('ni-supplier').value,par:parseFloat($('ni-par').value)||undefined,email:$('ni-email').value,expiry:$('ni-expiry').value||undefined});
     save(); render();
   };
   document.querySelectorAll('[data-del-ing]').forEach(b=>b.onclick=()=>{ db.ingredients=db.ingredients.filter(i=>i.id!==b.dataset.delIng); save(); render(); });
@@ -301,20 +309,57 @@ function mailto(o){
 }
 
 function renderOrders(){
-  const sug=suggestions();
-  const total=sug.reduce((s,g)=>s+poTotal(g.lines),0);
+  const fac=demandFactor(), sug=suggestions(), lines={}, busy=openOrderNames();
+  sug.forEach(g=>g.lines.forEach(l=>lines[l.name]=l));
+  const rows=db.ingredients.map(i=>{
+    const norm=demandPerDay(i.name), fc=norm*fac, d=dte(i), lead=i.lead??2;
+    const daysLeft=fc>0?i.stock/fc:Infinity;
+    return {i,norm,fc,d,line:lines[i.name],daysLeft,
+      out:i.stock<=i.reorder||daysLeft<=lead+1, exp:d!==null&&d<=3};
+  });
+  const recText=r=>{
+    if(r.line) return `<strong>Order ${r.line.qty} ${r.i.unit}</strong>`;
+    if(busy.has(r.i.name)) return '<span class="muted">Already on order</span>';
+    if(r.exp){ const excess=r.fc>0?r.i.stock-r.fc*Math.max(r.d,0):r.i.stock;
+      return excess>0?`Use first, ~${excess.toFixed(1)} ${r.i.unit} may expire`:'Use first'; }
+    return '<span class="muted">No order needed</span>';
+  };
+  const delta=r=>{ if(r.norm<=0) return '–'; const p=Math.round((r.fc/r.norm-1)*100);
+    return p===0?'–':`<span style="color:var(--${p>0?'accent':'muted'})">${p>0?'▲':'▼'} ${Math.abs(p)}%</span>`; };
+  const expTxt=r=>r.d===null?'–':r.d<0?'Expired':r.d===0?'Today':r.d===1?'Tomorrow':`${r.d} days`;
+  const running=rows.filter(r=>r.out), expiring=rows.filter(r=>r.exp);
   return `
   <div class="card">
-    <h2>Suggested orders</h2>
-    ${sug.length? sug.map(g=>`
-      <div style="margin-bottom:10px">
-        <strong>${g.supplier}</strong> <span class="muted">${g.email||'no email set'} · $${poTotal(g.lines).toFixed(2)}</span>
-        <div class="muted">${g.lines.map(l=>`${l.name}: ${l.qty} ${l.unit} (${l.why})`).join(' · ')}</div>
-      </div>`).join('') +
-      `<button class="btn" id="approve-all">✔ Approve & send all ($${total.toFixed(2)})</button>`
-      : '<div class="empty">Nothing to order. Stock is above reorder points (or already on order).</div>'}
+    <h2>Product demand</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Item</th><th>Forecast / day</th><th>Normal / day</th><th>vs normal</th><th>Recommendation</th></tr>
+      ${rows.map(r=>`<tr><td>${r.i.name}</td><td>${r.fc>0?r.fc.toFixed(2):'–'}</td><td>${r.norm>0?r.norm.toFixed(2):'–'}</td><td>${delta(r)}</td><td>${recText(r)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">No items yet</td></tr>'}
+    </table></div>
+    <p class="muted" style="margin:10px 0 0">Forecast = normal daily use adjusted for today's weekday, weather and local events.</p>
   </div>
-  ${renderForecast()}
+
+  <div class="card">
+    <h2>Inventory</h2>
+    <div class="invgrid">
+      <div class="tbl-wrap"><table>
+        <tr><th>Item</th><th>In stock</th><th>Days left</th><th>Expires</th><th>Status</th></tr>
+        ${rows.map(r=>`<tr><td>${r.i.name}</td><td>${r.i.stock} ${r.i.unit}</td><td>${r.daysLeft===Infinity?'–':r.daysLeft.toFixed(1)}</td><td>${expTxt(r)}</td>
+          <td>${r.out?'<span class="pill low">Running out</span> ':''}${r.exp?`<span class="pill ${r.d<0?'low':'mid'}">${r.d<0?'Expired':'Expiring'}</span>`:''}${!r.out&&!r.exp?'<span class="pill ok">OK</span>':''}</td></tr>`).join('')}
+      </table></div>
+      <div class="flags">
+        <div class="label" style="margin-bottom:8px">Flag items</div>
+        <div class="flaghead">Expiring</div>
+        ${expiring.length?expiring.map(r=>`<div class="flag">${r.i.name} <span class="muted">${expTxt(r)}</span></div>`).join(''):'<div class="muted">Nothing expiring soon</div>'}
+        <div class="flaghead" style="margin-top:14px">Running out</div>
+        ${running.length?running.map(r=>`<div class="flag">${r.i.name} <span class="muted">${r.daysLeft===Infinity?'below reorder point':r.daysLeft.toFixed(1)+' days left'}</span></div>`).join(''):'<div class="muted">Stock looks healthy</div>'}
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;margin:0 0 18px">
+    <button class="btn" id="approve-all" ${sug.length?'':'disabled'}>Generate order based on recommendations</button>
+  </div>
+
   <div class="card">
     <h2>Order history</h2>
     <div class="tbl-wrap"><table>
@@ -335,8 +380,13 @@ function renderOrders(){
     </div>
     <button class="btn ghost" id="gen-demo">Generate 14 days of demo sales</button>
     <p class="muted">With a webhook set, approving sends orders automatically. Without one, each order gets an Email link.</p>
-  </div>`;
+  </div>
+`;
 }
+
+function dte(i){ if(!i.expiry) return null;
+  return Math.round((new Date(i.expiry+'T00:00:00')-new Date(new Date().toDateString()))/864e5); }
+function demandFactor(){ const f=forecastToday(); return f?f.dowF*f.wxF*f.evF:1; }
 
 function bindOrders(){
   const $=id=>document.getElementById(id);
@@ -399,7 +449,7 @@ function suggestions(){
   const busy=openOrderNames(), g={}, buf=1+db.settings.buffer/100, cover=db.settings.cover;
   db.ingredients.forEach(i=>{
     if(busy.has(i.name)) return;
-    const dem=demandPerDay(i.name), lead=i.lead??2, daysLeft=dem>0?i.stock/dem:Infinity;
+    const dem=demandPerDay(i.name)*demandFactor(), lead=i.lead??2, daysLeft=dem>0?i.stock/dem:Infinity;
     const low=i.stock<=i.reorder, stockout=daysLeft<=lead+1;
     if(!low && !stockout) return;
     const target=dem>0 ? dem*(lead+cover)*buf : (i.par??i.reorder*2);
