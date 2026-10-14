@@ -81,6 +81,36 @@ th{color:var(--muted);font-weight:500;font-size:.78rem}
 .flag{padding:6px 0;font-size:.92rem;display:flex;justify-content:space-between;gap:8px}
 button.btn:disabled{opacity:.35;cursor:not-allowed}
 @media(max-width:680px){.invgrid{grid-template-columns:1fr}}
+/* ---------- FLUID / RESPONSIVE OVERRIDES ---------- */
+html{-webkit-text-size-adjust:100%}
+body{min-height:100vh;min-height:100dvh;overflow-x:hidden}
+header{padding:clamp(16px,2.5vw,32px) max(clamp(16px,4vw,56px),env(safe-area-inset-right)) 0 max(clamp(16px,4vw,56px),env(safe-area-inset-left))}
+h1{font-size:clamp(1.6rem,1.1rem + 1.8vw,2.9rem)}
+.sub{font-size:clamp(.9rem,.8rem + .4vw,1.2rem)}
+nav{justify-content:center;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+main{width:100%;max-width:1800px;padding:clamp(16px,3vw,48px) max(clamp(16px,4vw,56px),env(safe-area-inset-right)) 80px max(clamp(16px,4vw,56px),env(safe-area-inset-left))}
+.card{padding:clamp(16px,2vw,32px);border-radius:clamp(16px,2vw,24px)}
+.card h2{font-size:clamp(1.15rem,1rem + .6vw,1.6rem)}
+.dash-grid{gap:clamp(12px,1.6vw,24px)}
+.big{font-size:clamp(2rem,1.4rem + 2.2vw,3.5rem)}
+.big.sm{font-size:clamp(1.5rem,1.2rem + 1vw,2.4rem)}
+table{font-size:clamp(.82rem,.76rem + .25vw,1rem)}
+.invgrid{grid-template-columns:minmax(0,1fr) clamp(220px,22vw,320px)}
+@media(max-width:900px){
+  .c5,.c7{grid-column:span 12}
+  .invgrid{grid-template-columns:1fr}
+}
+@media(max-width:700px){
+  nav{justify-content:flex-start}
+  input,select{font-size:16px}
+}
+@media(max-width:520px){
+  .fgrid,.grid2{grid-template-columns:1fr}
+  .row{flex-direction:column}
+  .field{flex:1 1 100%}
+  button.btn:not(.ghost){width:100%}
+}
 </style>
 </head>
 <body>
