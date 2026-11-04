@@ -968,6 +968,81 @@ function togglePromo(menuId,price,reason,saving){
   save(); render();
 }
 
+/* ---------------- IPHONE WIDGET ---------------- */
+function widgetSummary(){
+  ensure();
+  const A=analyse(), I=computeImpact(A), bf=baseForecast(), F=A.F, s=db.settings;
+  const top=menuSpecials(A)[0], groups=A.groups.filter(g=>g.total>0);
+  return {
+    cafe:s.cafeName||DATASETS[DS].replace(' (original)',''),
+    demand:Math.round((F.total-1)*100),
+    expRev:bf?Math.round(bf.avgRev*F.total):null,
+    orders:groups.length,
+    items:sum(groups,g=>g.lines.filter(l=>!l.skip&&l.qty>0).length),
+    orderTotal:Math.round(sum(groups,g=>g.total)),
+    atStake:Math.round(I.gpNow+(top&&!top.active?top.saving:0)),
+    special:top&&!top.active?{name:top.m.name,price:top.proposed,use:top.p.i.name}:null
+  };
+}
+window.cafecastWidget=widgetSummary;
+
+/* Runs inside the Scriptable app on the phone, not in the browser */
+async function cafecastWidgetMain(APP_URL){
+  const fm=FileManager.local(), path=fm.joinPath(fm.documentsDirectory(),'cafecast.json');
+  let d=null;
+  try{
+    const wv=new WebView();
+    await wv.loadURL(APP_URL);
+    await new Promise(r=>Timer.schedule(2500,false,r));
+    d=JSON.parse(await wv.evaluateJavaScript('JSON.stringify(cafecastWidget())'));
+    fm.writeString(path,JSON.stringify(d));
+  }catch(e){ if(fm.fileExists(path)) d=JSON.parse(fm.readString(path)); }
+
+  const fam=config.widgetFamily||'medium', money=n=>'$'+Math.round(n).toLocaleString();
+  const w=new ListWidget(), g=new LinearGradient();
+  g.colors=[new Color('#2c211c'),new Color('#276f5b')]; g.locations=[0,1];
+  w.backgroundGradient=g; w.setPadding(14,14,14,14); w.url=APP_URL;
+  w.refreshAfterDate=new Date(Date.now()+30*60e3);
+  const add=(t,size,bold,alpha)=>{ const e=w.addText(t); e.textColor=new Color('#ffffff',alpha||1);
+    e.font=bold?Font.boldSystemFont(size):Font.systemFont(size); e.lineLimit=2; return e; };
+
+  if(!d){ add('CafeCast',14,true); add('Open the app once to load today\u2019s plan.',11,false,.7); }
+  else{
+    add(d.cafe.toUpperCase(),9,true,.65); w.addSpacer(4);
+    add(d.demand===0?'Normal day':Math.abs(d.demand)+'% '+(d.demand>0?'busier':'quieter'),fam==='small'?19:24,true);
+    if(d.expRev) add('~'+money(d.expRev)+' expected sales',11,false,.8);
+    w.addSpacer(8);
+    add(d.orders?d.orders+' order'+(d.orders>1?'s':'')+' to approve \u00b7 '+money(d.orderTotal):'No orders needed',12,true);
+    if(fam!=='small'&&d.special){ w.addSpacer(4); add('Special: '+d.special.name+' at $'+d.special.price.toFixed(2)+' (uses '+d.special.use+')',11,false,.8); }
+    if(fam==='large'&&d.atStake>0){ w.addSpacer(4); add(money(d.atStake)+' profit at stake today',11,false,.8); }
+    w.addSpacer();
+    add('Updated '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),9,false,.5);
+  }
+  if(config.runsInApp) await w.presentMedium();
+  Script.setWidget(w); Script.complete();
+}
+function widgetScript(){
+  return '// CafeCast widget (paste into Scriptable)\nconst APP_URL='+JSON.stringify(location.origin+location.pathname)+';\nawait ('+cafecastWidgetMain.toString()+')(APP_URL);';
+}
+function widgetCard(){
+  const d=widgetSummary(), hosted=location.protocol!=='file:';
+  return `<div class="card"><h2>${icon('bolt')} iPhone widget</h2>
+    <p class="lead">Put today\u2019s summary on your home screen. This uses the free Scriptable app.</p>
+    <div class="daily-hero" style="max-width:340px;padding:16px 18px;border-radius:22px;margin:0 0 14px">
+      <div class="hero-label">${esc(d.cafe)}</div>
+      <div class="hero-title" style="font-size:1.5rem;margin:6px 0 2px">${d.demand===0?'Normal day':Math.abs(d.demand)+'% '+(d.demand>0?'busier':'quieter')}</div>
+      <div class="hero-copy">${d.expRev?'~'+money(d.expRev)+' expected sales':''}</div>
+      <div style="margin-top:10px;font-weight:600;font-size:.88rem;position:relative;z-index:1">${d.orders?d.orders+' order'+(d.orders>1?'s':'')+' to approve \u00b7 '+money(d.orderTotal):'No orders needed'}</div>
+      ${d.special?`<div class="hero-copy" style="margin-top:4px">Special: ${esc(d.special.name)} at ${money(d.special.price)}</div>`:''}
+    </div>
+    ${hosted?'':'<div class="limit" style="margin-bottom:12px">Open this page from your hosted (GitHub Pages) address first. The widget needs a web URL, not a local file.</div>'}
+    <button class="btn" data-act="widget-copy">Copy widget script</button>
+    <div class="check" style="margin-top:12px"><div class="tick">1</div><div>Install <strong>Scriptable</strong> from the App Store (free).</div></div>
+    <div class="check"><div class="tick">2</div><div>Open Scriptable, tap <strong>+</strong>, paste the script, name it \u201cCafeCast\u201d.</div></div>
+    <div class="check"><div class="tick">3</div><div>Long-press your Home Screen \u2192 <strong>+</strong> \u2192 Scriptable \u2192 pick a size \u2192 tap the widget \u2192 Script: <strong>CafeCast</strong>.</div></div>
+    <div class="note">Prototype limit: the widget opens its own copy of the app, so it shows the built-in Little Fern data, not edits made in your Safari copy. For live data the app needs a small backend (or the Square API) that both read from.</div></div>`;
+}
+
 /* ---------------- TODAY (trimmed) ---------------- */
 function renderToday(A){
   const R=dataReadiness(), bf=baseForecast(), F=A.F, I=computeImpact(A), ideas=menuSpecials(A), ai=db.aiBrief, detail=!!db.settings.detail, s=db.settings;
@@ -1510,6 +1585,7 @@ function renderSetup(A){
     <a class="btn ghost" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a free API key ↗</a>
   </div>
 
+  ${widgetCard()}
   <div class="card">
     <h2>Data</h2>
     <p class="lead">You\u2019re using <strong>${DATASETS[DS]}</strong>. Each dataset is saved separately in this browser, so changes here never affect the other one. Switch datasets at the top of the page. Resetting only reloads this dataset\u2019s original data.</p>
@@ -1537,6 +1613,7 @@ document.addEventListener('click',async e=>{
     case 'voice-send': { const v=$('v-text'); if(v){ handleVoice(v.value); v.value=''; } break; }
     case 'voice-say': openVoice(); handleVoice(b.dataset.say); break;
     case 'voice-brief': openVoice(); speak(briefText(analyse())); break;
+    case 'widget-copy': try{ await navigator.clipboard.writeText(widgetScript()); flash='Widget script copied. Paste it into a new Scriptable script.'; }catch(e){ flash='Couldn\u2019t copy automatically. Try again from the hosted (https) page.'; } render(); break;
     case 'test-voice': speak('Hi, this is CafeCast. Voice is working.'); break;
     case 'toggle-detail': db.settings.detail=!db.settings.detail; active='today'; save(); render(); requestAnimationFrame(()=>{ const t=$('forecast-drivers'); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }); break;
     case 'ai-context': await runGeminiContext(); break;
