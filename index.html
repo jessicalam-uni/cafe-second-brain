@@ -141,7 +141,7 @@ function load(){
   };
 }
 function ds(n){return new Date(Date.now()+n*864e5).toLocaleDateString('en-CA');}
-function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){} }
 function cid(){ return Math.random().toString(36).slice(2,9); }
 function ingByName(n){ return db.ingredients.find(i=>i.name===n); }
 
@@ -202,14 +202,14 @@ function renderInv(){
     <div class="tbl-wrap"><table>
       <tr><th>Name</th><th>Stock</th><th>Reorder@</th><th>Cost</th><th>Supplier</th><th>Status</th><th></th></tr>
       ${db.ingredients.map(i=>`<tr>
-        <td>i.name</td><td>{i.stock} i.unit</td><td>{i.reorder}</td><td>$i.cost.toFixed(2)</td><td>{i.supplier||'-'}</td>
-        <td>stockPill(i)</td><td><buttonclass="del"data-del-ing="{i.id}">✕</button></td></tr>`).join('') || `<tr><td colspan="7" class="empty">No ingredients yet</td></tr>`}
+        <td>${i.name}</td><td>${i.stock} ${i.unit}</td><td>${i.reorder}</td><td>$${i.cost.toFixed(2)}</td><td>${i.supplier||'-'}</td>
+        <td>${stockPill(i)}</td><td><button class="del" data-del-ing="${i.id}">✕</button></td></tr>`).join('') || `<tr><td colspan="7" class="empty">No ingredients yet</td></tr>`}
     </table></div>
   </div>`;
 }
 
 function renderMenu(){
-  const ingOpts = db.ingredients.map(i=>`<option value="i.name">{i.name}</option>`).join('');
+  const ingOpts = db.ingredients.map(i=>`<option value="${i.name}">${i.name}</option>`).join('');
   return `
   <div class="card">
     <h2>Add menu item</h2>
@@ -230,7 +230,7 @@ function renderMenu(){
     <div class="tbl-wrap"><table>
       <tr><th>Item</th><th>Price</th><th>Cost</th><th>Margin %</th><th>Recipe</th><th></th></tr>
       ${db.menu.map(m=>{ const c=costOfItem(m); const pct=m.price>0?((m.price-c)/m.price*100):0;
-        return `<tr><td>m.name</td><td>m.price.toFixed(2)</td><td>c.toFixed(2)</td><td>{pct.toFixed(0)}%</td>
+        return `<tr><td>${m.name}</td><td>$${m.price.toFixed(2)}</td><td>$${c.toFixed(2)}</td><td>${pct.toFixed(0)}%</td>
         <td class="muted">${m.recipe.map(r=>`${r.ing} ×${r.qty}`).join(', ')}</td>
         <td><button class="del" data-del-menu="${m.id}">✕</button></td></tr>`;}).join('') || `<tr><td colspan="6" class="empty">No menu items yet</td></tr>`}
     </table></div>
@@ -239,7 +239,7 @@ function renderMenu(){
 
 let draftRecipe=[];
 function renderSell(){
-  const opts=db.menu.map(m=>`<option value="m.id">{m.name} ($${m.price.toFixed(2)})</option>`).join('');
+  const opts=db.menu.map(m=>`<option value="${m.id}">${m.name} ($${m.price.toFixed(2)})</option>`).join('');
   return `
   <div class="card">
     <h2>Log a sale</h2>
@@ -255,13 +255,13 @@ function renderSell(){
     <div class="tbl-wrap"><table>
       <tr><th>Item</th><th>Qty</th><th>Revenue</th></tr>
       ${[...db.sales].reverse().slice(0,15).map(s=>{ const m=db.menu.find(x=>x.id===s.menuId);
-        return `<tr><td>m?m.name:'(deleted)'</td><td>{s.qty}</td><td>$${m?(m.price*s.qty).toFixed(2):'-'}</td></tr>`;}).join('') || `<tr><td colspan="3" class="empty">No sales logged</td></tr>`}
+        return `<tr><td>${m?m.name:'(deleted)'}</td><td>${s.qty}</td><td>$${m?(m.price*s.qty).toFixed(2):'-'}</td></tr>`;}).join('') || `<tr><td colspan="3" class="empty">No sales logged</td></tr>`}
     </table></div>
   </div>`;
 }
 
 function renderWaste(){
-  const opts=db.ingredients.map(i=>`<option value="i.name">{i.name}</option>`).join('');
+  const opts=db.ingredients.map(i=>`<option value="${i.name}">${i.name}</option>`).join('');
   return `
   <div class="card">
     <h2>Log waste</h2>
@@ -279,7 +279,7 @@ function renderWaste(){
     <div class="tbl-wrap"><table>
       <tr><th>Ingredient</th><th>Qty</th><th>Cost</th><th>Reason</th></tr>
       ${[...db.waste].reverse().slice(0,15).map(w=>{ const ing=ingByName(w.ing);
-        return `<tr><td>w.ing</td><td>{w.qty}</td><td>$ing?(ing.cost*w.qty).toFixed(2):'-'</td><td>{w.reason}</td></tr>`;}).join('') || `<tr><td colspan="4" class="empty">No waste logged</td></tr>`}
+        return `<tr><td>${w.ing}</td><td>${w.qty}</td><td>$${ing?(ing.cost*w.qty).toFixed(2):'-'}</td><td>${w.reason}</td></tr>`;}).join('') || `<tr><td colspan="4" class="empty">No waste logged</td></tr>`}
     </table></div>
   </div>`;
 }
@@ -288,33 +288,33 @@ function bindEvents(){
   const $=id=>document.getElementById(id);
   if($('add-ing')) $('add-ing').onclick=()=>{
     const name=$('ni-name').value.trim(); if(!name) return alert('Name required');
-    db.ingredients.push({id:cid(),name,unit:('ni-unit').value||'ea',stock:parseFloat(('ni-stock').value)||0,reorder:parseFloat(('ni-reorder').value)||0,cost:parseFloat(('ni-cost').value)||0,supplier:('ni-supplier').value,par:parseFloat(('ni-par').value)||undefined,email:('ni-email').value,expiry:('ni-expiry').value||undefined});
+    db.ingredients.push({id:cid(),name,unit:$('ni-unit').value||'ea',stock:parseFloat($('ni-stock').value)||0,reorder:parseFloat($('ni-reorder').value)||0,cost:parseFloat($('ni-cost').value)||0,supplier:$('ni-supplier').value,par:parseFloat($('ni-par').value)||undefined,email:$('ni-email').value,expiry:$('ni-expiry').value||undefined});
     save(); render();
   };
   document.querySelectorAll('[data-del-ing]').forEach(b=>b.onclick=()=>{ db.ingredients=db.ingredients.filter(i=>i.id!==b.dataset.delIng); save(); render(); });
   document.querySelectorAll('[data-del-menu]').forEach(b=>b.onclick=()=>{ db.menu=db.menu.filter(m=>m.id!==b.dataset.delMenu); save(); render(); });
 
   if($('add-recipe-line')) $('add-recipe-line').onclick=()=>{
-    const ing=('nm-ing').value,qty=parseFloat(('nm-qty').value);
+    const ing=$('nm-ing').value,qty=parseFloat($('nm-qty').value);
     if(!ing||!qty) return;
     draftRecipe.push({ing,qty});
-    ('recipe-draft').textContent='Recipesofar:'+draftRecipe.map(r=>`{r.ing}×${r.qty}`).join(', ');
+    $('recipe-draft').textContent='Recipe so far: '+draftRecipe.map(r=>`${r.ing} ×${r.qty}`).join(', ');
   };
   if($('add-menu')) $('add-menu').onclick=()=>{
-    const name=('nm-name').value.trim(),price=parseFloat(('nm-price').value);
+    const name=$('nm-name').value.trim(),price=parseFloat($('nm-price').value);
     if(!name||!price||!draftRecipe.length) return alert('Name, price and at least one recipe line required');
     db.menu.push({id:cid(),name,price,recipe:draftRecipe});
     draftRecipe=[]; save(); render();
   };
   if($('log-sale')) $('log-sale').onclick=()=>{
-    const menuId=('sl-item').value,qty=parseInt(('sl-qty').value)||1;
+    const menuId=$('sl-item').value,qty=parseInt($('sl-qty').value)||1;
     const item=db.menu.find(m=>m.id===menuId); if(!item) return;
     item.recipe.forEach(r=>{ const ing=ingByName(r.ing); if(ing) ing.stock=Math.max(0,ing.stock-r.qty*qty); });
     db.sales.push({menuId,qty,ts:Date.now()});
     save(); render();
   };
   if($('log-waste')) $('log-waste').onclick=()=>{
-    const ing=('w-ing').value,qty=parseFloat(('w-qty').value), reason=$('w-reason').value;
+    const ing=$('w-ing').value,qty=parseFloat($('w-qty').value), reason=$('w-reason').value;
     if(!ing||!qty) return;
     const i=ingByName(ing); if(i) i.stock=Math.max(0,i.stock-qty);
     db.waste.push({ing,qty,reason,ts:Date.now()});
@@ -335,7 +335,7 @@ function poText(o){
     o.lines.map(l=>`- ${l.name}: ${l.qty} ${l.unit}`).join('\n')+`\n\nPurchase order ${o.id}. Thanks!`;
 }
 function mailto(o){
-  return `mailto:o.email?subject={encodeURIComponent('Order '+o.id)}&body=${encodeURIComponent(poText(o))}`;
+  return `mailto:${o.email}?subject=${encodeURIComponent('Order '+o.id)}&body=${encodeURIComponent(poText(o))}`;
 }
 
 function renderOrders(){
@@ -355,7 +355,7 @@ function renderOrders(){
     return '<span class="muted">No order needed</span>';
   };
   const delta=r=>{ if(r.norm<=0) return '–'; const p=Math.round((r.fc/r.norm-1)*100);
-    return p===0?'–':`<span style="color:var(--p>0?'accent':'muted')">{p>0?'▲':'▼'} ${Math.abs(p)}%</span>`; };
+    return p===0?'–':`<span style="color:var(--${p>0?'accent':'muted'})">${p>0?'▲':'▼'} ${Math.abs(p)}%</span>`; };
   const expTxt=r=>r.d===null?'–':r.d<0?'Expired':r.d===0?'Today':r.d===1?'Tomorrow':`${r.d} days`;
   const running=rows.filter(r=>r.out), expiring=rows.filter(r=>r.exp);
   return `
@@ -363,7 +363,7 @@ function renderOrders(){
     <h2>Product demand</h2>
     <div class="tbl-wrap"><table>
       <tr><th>Item</th><th>Forecast / day</th><th>Normal / day</th><th>vs normal</th><th>Recommendation</th></tr>
-      ${rows.map(r=>`<tr><td>${r.i.name}</td><td>r.fc>0?r.fc.toFixed(2):'–'</td><td>{r.norm>0?r.norm.toFixed(2):'–'}</td><td>delta(r)</td><td>{recText(r)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">No items yet</td></tr>'}
+      ${rows.map(r=>`<tr><td>${r.i.name}</td><td>${r.fc>0?r.fc.toFixed(2):'–'}</td><td>${r.norm>0?r.norm.toFixed(2):'–'}</td><td>${delta(r)}</td><td>${recText(r)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">No items yet</td></tr>'}
     </table></div>
     <p class="muted" style="margin:10px 0 0">Forecast = normal daily use adjusted for today's weekday, weather and local events.</p>
   </div>
@@ -373,8 +373,8 @@ function renderOrders(){
     <div class="invgrid">
       <div class="tbl-wrap"><table>
         <tr><th>Item</th><th>In stock</th><th>Days left</th><th>Expires</th><th>Status</th></tr>
-        ${rows.map(r=>`<tr><td>${r.i.name}</td><td>${r.i.stock} r.i.unit</td><td>{r.daysLeft===Infinity?'–':r.daysLeft.toFixed(1)}</td><td>${expTxt(r)}</td>
-          <td>r.out?'<spanclass="pilllow">Runningout</span>':''{r.exp?`<span class="pill r.d<0?'low':'mid'">{r.d<0?'Expired':'Expiring'}</span>`:''}${!r.out&&!r.exp?'<span class="pill ok">OK</span>':''}</td></tr>`).join('')}
+        ${rows.map(r=>`<tr><td>${r.i.name}</td><td>${r.i.stock} ${r.i.unit}</td><td>${r.daysLeft===Infinity?'–':r.daysLeft.toFixed(1)}</td><td>${expTxt(r)}</td>
+          <td>${r.out?'<span class="pill low">Running out</span> ':''}${r.exp?`<span class="pill ${r.d<0?'low':'mid'}">${r.d<0?'Expired':'Expiring'}</span>`:''}${!r.out&&!r.exp?'<span class="pill ok">OK</span>':''}</td></tr>`).join('')}
       </table></div>
       <div class="flags">
         <div class="label" style="margin-bottom:8px">Flag items</div>
@@ -395,7 +395,7 @@ function renderOrders(){
     <div class="tbl-wrap"><table>
       <tr><th>PO</th><th>Supplier</th><th>Total</th><th>Status</th><th></th></tr>
       ${[...db.orders].reverse().map(o=>`<tr>
-        <td>o.id</td><td>{o.supplier}</td><td>$o.total.toFixed(2)</td><td>{o.status}</td>
+        <td>${o.id}</td><td>${o.supplier}</td><td>$${o.total.toFixed(2)}</td><td>${o.status}</td>
         <td>${o.status!=='received'?`${o.status==='approved'?`<a href="${mailto(o)}">✉ Email</a> `:''}<button class="btn ghost" data-recv="${o.id}">Received</button>`:''}</td>
       </tr>`).join('') || `<tr><td colspan="5" class="empty">No orders yet</td></tr>`}
     </table></div>
@@ -486,7 +486,7 @@ function suggestions(){
     const qty=Math.ceil((target-i.stock)*10)/10;
     if(qty<=0) return;
     const dl=daysLeft.toFixed(1);
-    const why=low&&stockout?`low stock, out in ~dld`:stockout?`forecast:outin~{dl}d`:'below reorder point';
+    const why=low&&stockout?`low stock, out in ~${dl}d`:stockout?`forecast: out in ~${dl}d`:'below reorder point';
     const s=i.supplier||'Unassigned';
     g[s]=g[s]||{supplier:s,email:i.email||'',lines:[]};
     g[s].lines.push({name:i.name,unit:i.unit,qty,cost:i.cost,why});
@@ -497,7 +497,7 @@ function renderForecast(){
   return `<div class="card"><h2>Demand forecast</h2><div class="tbl-wrap"><table>
     <tr><th>Ingredient</th><th>Stock</th><th>Use/day</th><th>Days left</th></tr>
     ${db.ingredients.map(i=>{const d=demandPerDay(i.name),dl=d>0?(i.stock/d).toFixed(1):'–';
-      return `<tr><td>i.name</td><td>{i.stock} i.unit</td><td>{d>0?d.toFixed(2):'–'}</td><td>${dl}</td></tr>`;}).join('')}
+      return `<tr><td>${i.name}</td><td>${i.stock} ${i.unit}</td><td>${d>0?d.toFixed(2):'–'}</td><td>${dl}</td></tr>`;}).join('')}
   </table></div><p class="muted">Based on the last ${Math.round(lookbackDays())||0} days of sales and waste. Log sales to improve it.</p></div>`;
 }
 function genDemo(){
@@ -520,7 +520,7 @@ const money=n=>'$'+n.toFixed(2);
 
 function loadWeather(){
   const lat=db.settings.lat??-33.87, lon=db.settings.lon??151.21;
-  fetch(`https://api.open-meteo.com/v1/forecast?latitude=lat&longitude={lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1`)
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1`)
     .then(r=>r.json()).then(d=>{const x=d.daily;
       weather={code:x.weathercode[0],max:x.temperature_2m_max[0],min:x.temperature_2m_min[0],rain:x.precipitation_probability_max[0]};
       if(active==='dash') render();}).catch(()=>{});
@@ -556,12 +556,12 @@ function recommendations(){
   const out=[], sug=suggestions();
   if(sug.length){
     const n=sug.reduce((s,g)=>s+g.lines.length,0), tot=sug.reduce((s,g)=>s+poTotal(g.lines),0);
-    out.push({txt:`Order nitem{n>1?'s':''} from sug.lengthsupplier{sug.length>1?'s':''} (${money(tot)}) so you don't run out.`,act:true});
+    out.push({txt:`Order ${n} item${n>1?'s':''} from ${sug.length} supplier${sug.length>1?'s':''} (${money(tot)}) so you don't run out.`,act:true});
   }
   const wk={};
   db.waste.filter(w=>Date.now()-w.ts<7*DAY).forEach(w=>{const i=ingByName(w.ing); if(i) wk[w.ing]=(wk[w.ing]||0)+i.cost*w.qty;});
   const top=Object.entries(wk).sort((a,b)=>b[1]-a[1])[0];
-  if(top) out.push({txt:`top[0]isyourbiggestwastethisweek({money(top[1])}). Prep or order less of it.`});
+  if(top) out.push({txt:`${top[0]} is your biggest waste this week (${money(top[1])}). Prep or order less of it.`});
   const f=forecastToday();
   if(f&&f.wxF<1) out.push({txt:'Rain expected: plan for roughly 10% fewer customers and prep lighter.'});
   if(f&&f.evF>1) out.push({txt:`A local event is on: expect about +${Math.round((f.evF-1)*100)}% demand. Make sure key items are stocked.`});
@@ -576,10 +576,10 @@ function renderDash(){
   const pct=f&&f.revenue>0?Math.min(100,t.rev/f.revenue*100):0;
   const wToday=db.waste.filter(w=>dkey(w.ts)===tk).map(w=>{const i=ingByName(w.ing);return {...w,cost:i?i.cost*w.qty:0};});
   const wCost=wToday.reduce((s,w)=>s+w.cost,0);
-  const wOpts=db.ingredients.map(i=>`<option value="i.name">{i.name}</option>`).join('');
+  const wOpts=db.ingredients.map(i=>`<option value="${i.name}">${i.name}</option>`).join('');
   const evs=todayEvents();
   const dateStr=new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
-  const adj=f?[f.dowF!==1?`weekday pattern f.dowF>1?'+':''{Math.round((f.dowF-1)*100)}%`:'',f.wxF<1?'rain -10%':'',f.evF>1?`events +${Math.round((f.evF-1)*100)}%`:''].filter(Boolean).join(' · '):'';
+  const adj=f?[f.dowF!==1?`weekday pattern ${f.dowF>1?'+':''}${Math.round((f.dowF-1)*100)}%`:'',f.wxF<1?'rain -10%':'',f.evF>1?`events +${Math.round((f.evF-1)*100)}%`:''].filter(Boolean).join(' · '):'';
   return `
   <div class="dash-grid">
     <div class="card c5">
@@ -595,9 +595,9 @@ function renderDash(){
     <div class="card c7">
       <h2>End-of-day food waste</h2>
       <div class="label">Wasted today</div>
-      <div class="big" style="color:wCost>0?'var(--warn)':'var(--ink)'">{money(wCost)}</div>
-      <div class="muted" style="margin:6px 0 10px">wToday.lengthitem{wToday.length===1?'':'s'} logged</div>
-      ${wToday.length?`<div class="tbl-wrap"><table>${wToday.map(w=>`<tr><td>w.ing</td><td>{w.qty}</td><td>w.reason</td><td>{money(w.cost)}</td></tr>`).join('')}</table></div>`:''}
+      <div class="big" style="color:${wCost>0?'var(--warn)':'var(--ink)'}">${money(wCost)}</div>
+      <div class="muted" style="margin:6px 0 10px">${wToday.length} item${wToday.length===1?'':'s'} logged</div>
+      ${wToday.length?`<div class="tbl-wrap"><table>${wToday.map(w=>`<tr><td>${w.ing}</td><td>${w.qty}</td><td>${w.reason}</td><td>${money(w.cost)}</td></tr>`).join('')}</table></div>`:''}
       <div class="row" style="margin-top:12px">
         <div class="field"><label>Ingredient</label><select id="w-ing">${wOpts}</select></div>
         <div class="field"><label>Qty</label><input id="w-qty" type="number" step="0.1"></div>
@@ -615,7 +615,7 @@ function renderDash(){
         <div><div class="label">Expected customers</div><div class="big sm">${f?'~'+f.customers:'–'}</div>
           <div class="muted">${f?'assumes 1.5 items per customer':''}</div></div>
         <div><div class="label">Local events</div>
-          ${evs.length?evs.map(e=>`<div class="stat" style="padding:6px 0"><span>${e.name} <span class="muted">+e.uplift%</span></span><buttonclass="del"data-del-ev="{e.id}">✕</button></div>`).join(''):'<div class="muted">None added for today</div>'}
+          ${evs.length?evs.map(e=>`<div class="stat" style="padding:6px 0"><span>${e.name} <span class="muted">+${e.uplift}%</span></span><button class="del" data-del-ev="${e.id}">✕</button></div>`).join(''):'<div class="muted">None added for today</div>'}
           <div class="row" style="margin-top:8px"><input id="ev-name" placeholder="Event name" style="flex:2;min-width:110px"><input id="ev-up" type="number" placeholder="+%" style="width:70px"><button class="btn ghost" id="add-event">Add</button></div>
         </div>
       </div>
